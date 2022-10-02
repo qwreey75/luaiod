@@ -59,7 +59,7 @@ function build_luvi {
     printf "$ok"
 
     # patching luvi
-    printf "$head Patching luvi code${clear}"
+    printf "$head Patching luvi code"
     cp $1/src/luvi/** $2/luvi.d -rf
     printf "$ok"
 
@@ -144,6 +144,16 @@ function build_lit {
     return 0
 }
 
+modulelist=(
+    "worker" "https://github.com/qwreey75/worker.lua"
+    "mutex" "https://github.com/qwreey75/mutex.lua"
+    "promise" "https://github.com/qwreey75/promise.lua"
+    "xml" "https://github.com/qwreey75/myXml.lua"
+    "profiler" "https://github.com/qwreey75/profiler.lua"
+    "logger" "https://github.com/qwreey75/logger.lua"
+    "random" "https://github.com/qwreey75/random.lua"
+    "tester" "https://github.com/qwreey75/tester.lua"
+)
 function build_luvit {
     cd $2
     printf "${yellow}[BUILD] Building luvit . . .${clear}\n"
@@ -167,6 +177,36 @@ function build_luvit {
     git submodule update --init --force --depth=1 --recursive 1>> $2/logs/git_luvit 2>> $2/logs/git_luvit
     checkerr $? "\n$headerr FAILED TO CLONE GIT!" "$2/logs/git_luvit"; [[ $? == 1 ]] && return 1
     printf "$ok"
+
+    # clone custom module
+    printf "$head Cloning custom modules"
+    for (( i=1; i<${#modulelist[@]}; i+=2 )); do
+        url=${modulelist[$i]}
+        name=${modulelist[$i-1]}
+        printf "\n - Cloning ${url} into deps/${name}"
+        if [[ ! -d deps/${name} ]]; then
+            git clone --depth=1 --recursive "${url}" "deps/${name}" 1>> $2/logs/git_luvit_patch 2>> $2/logs/git_luvit_patch
+            checkerr $? "\n$headerr FAILED TO CLONE GIT!" "$2/logs/git_luvit_patch"; [[ $? == 1 ]] && return 1
+        else
+            mv $2/gits/module_${name} deps/${name}/.git
+            git -C deps/${name} reset 1>> $2/logs/git_luvit_patch 2>> $2/logs/git_luvit_patch
+            checkerr $? "\n$headerr FAILED TO CLONE GIT!" "$2/logs/git_luvit_patch"; [[ $? == 1 ]] && return 1
+            git -C deps/${name} pull 1>> $2/logs/git_luvit_patch 2>> $2/logs/git_luvit_patch
+            checkerr $? "\n$headerr FAILED TO CLONE GIT!" "$2/logs/git_luvit_patch"; [[ $? == 1 ]] && return 1
+        fi
+        mv deps/${name}/.git $2/gits/module_${name}
+        rm deps/${name}/LICENSE 1>> /dev/null 2>> /dev/null
+        rm deps/${name}/README.md 1>> /dev/null 2>> /dev/null
+        rm deps/${name}/.gitignore 1>> /dev/null 2>> /dev/null
+        printf " ${yellow}[ OK! ]${clear}"
+    done
+    printf "\n"
+
+    # patching
+    printf "$head Patching luvit code"
+    cp $1/src/luvit/** $2/luvit.d -rf
+    printf "$ok"
+
 
     # building luvit
     $2/lit make . luvit $2/luvi 1>> $2/logs/build_luvit 2>> $2/logs/build_luvit
@@ -192,6 +232,7 @@ function build_luvit {
 function build {
     root=$(pwd)
     mkdir -p dist
+    mkdir -p dist/gits
     mkdir -p dist/logs
     cd dist
     build=$(pwd)
@@ -208,4 +249,86 @@ function build {
     build_luvit ${root} ${build}
     [[ $? == 1 ]] && printf "\n$red ( BUILD STOPPED DUE TO ERROR )\n" && exit 1
 }
-build
+
+function install {
+    sudo cp dist/luvi /bin/luvi -f
+    sudo cp dist/lit /bin/lit -f
+    sudo cp dist/luvit /bin/luvit -f
+}
+
+function clean {
+    printf "${yellow} * Removing dist folder . . .${clean}"
+    rm -rf dist
+    printf "$ok"
+}
+
+function requestSUDO {
+    printf "$1"
+    sudo whoami >> /dev/null
+    printf "$ok"
+}
+
+function help {
+  echo "-b | --build (default)"
+  echo "    Build luvit and modules"
+  echo "-c | --clean"
+  echo "    Clean up build folder"
+  echo "-i | --install"
+  echo "    Copy bin files into /bin !REQUIRE SUDO"
+  echo "-h | --help"
+  echo "    Show this message"
+}
+
+option_build="f"
+option_clean="f"
+option_install="f"
+noOption="t"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -b|--build)
+            option_build="t"
+            noOption="f"
+            shift # past argument
+        ;;
+        -c|--clean)
+            option_clean="t"
+            noOption="f"
+            shift # past argument
+        ;;
+        -i|--install)
+            install="t"
+            noOption="f"
+            shift # past argument
+        ;;
+        -h|--help)
+            noOption="f"
+            shift # past argument
+            help
+            exit 1
+        ;;
+        -*|--*)
+            echo "Wrong option $1"
+            help
+            exit 1
+        ;;
+        *)
+            POSITIONAL_ARGS+=("$1") # save positional arg
+            shift # past argument
+        ;;
+    esac
+done
+
+# request sudo for install into /bin
+[[ $option_install == "t" ]] && requestSUDO
+
+# cleanup dist
+[[ $option_clean == "t" ]] && clean
+
+# build
+[[ $option_build == "t" || $noOption == "t" ]] && build
+
+# install
+[[ $option_install == "t" ]] && install
+
+exit 0
